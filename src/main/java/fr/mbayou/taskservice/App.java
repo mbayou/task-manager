@@ -1,15 +1,9 @@
 package fr.mbayou.taskservice;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.gson.GsonBuilder;
-import fr.mbayou.taskservice.model.Task;
+import fr.mbayou.taskservice.service.ServiceFactory;
+import fr.mbayou.taskservice.web.api.TaskController;
 import org.eclipse.jetty.http.HttpStatus;
-import org.joda.time.format.ISODateTimeFormat;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import static spark.Spark.*;
 
@@ -19,8 +13,6 @@ import static spark.Spark.*;
 
 public class App {
 
-    private final static Map<Long, Task> tasks = new HashMap<>();
-
     /**
      * Main (entry point)
      *
@@ -29,39 +21,38 @@ public class App {
      * @throws Exception when an error occurred
      */
     public static void main(final String[] args) throws Exception {
-        String projectDir = System.getProperty("user.dir");
-        String staticDir = "/src/main/resources/public";
-        staticFiles.externalLocation(projectDir + staticDir);
 
         port(8080);
+        ipAddress("127.0.0.1");
 
-        post("/tasks", (request, response) -> {
-            final Task newTask = GsonProvider.getGeson().fromJson(request.body(), Task.class);
-            Preconditions.checkArgument(!tasks.containsKey(newTask.id), "Task with ID " + newTask.id + " already exist");
-
-            tasks.put(newTask.id, newTask);
-
-            return halt(HttpStatus.NO_CONTENT_204);
+        // Bind check header
+        before((request, response) -> {
+            if (Strings.isNullOrEmpty(request.headers("Accept-Charset"))
+                    || !request.headers("Accept-Charset").toLowerCase().equals("utf-8")
+                    || Strings.isNullOrEmpty(request.headers("Content-Type"))
+                    || !request.headers("Content-Type").toLowerCase().equals("application/json")) {
+                halt(HttpStatus.UNSUPPORTED_MEDIA_TYPE_415);
+            }
         });
 
-        get("/tasks", (request, response) -> tasks.values(), new JsonTransformer());
+        // Bind controller
+        new TaskController(ServiceFactory.getUserService());
 
-        get("/tasks/:id", (request, response) -> {
-            final long id = Long.valueOf(request.params(":id"));
-            if (tasks.containsKey(id)) {
-                return tasks.get(id);
-            } else {
-                return halt(HttpStatus.NOT_FOUND_404);
-            }
-        }, new JsonTransformer());
+        // Bind exceptions
+        exception(IllegalArgumentException.class, (exception, request, response) -> {
+            response.status(HttpStatus.BAD_REQUEST_400);
+            response.body(exception.getMessage());
+        });
 
-        delete("/tasks/:id", (request, response) -> {
-            final long id = Long.valueOf(request.params(":id"));
-            Preconditions.checkArgument(tasks.containsKey(id), "Task to delete doesn't exist");
+        // Use the number format exception to check if ID is parsable into long
+        // So in this case I return a 404
+        exception(NumberFormatException.class, (exception, request, response) -> {
+            response.status(HttpStatus.NOT_FOUND_404);
+        });
 
-            tasks.remove(id);
-
-            return halt(HttpStatus.NO_CONTENT_204);
+        after((request, response) -> {
+            response.type("application/json");
+            response.header("Accept-Charset", "UTF-8");
         });
     }
 }
