@@ -1,5 +1,8 @@
 package fr.mbayou.taskservice.model;
 
+/**
+ * Represent a Task
+ */
 public class Task {
 
     /**
